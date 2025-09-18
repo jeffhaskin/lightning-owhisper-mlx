@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Mapping, Optional
+
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -67,14 +68,54 @@ def create_app(config: AppConfig) -> FastAPI:
     authenticator = Authenticator(config.general.api_key)
     transcriber = TranscriberService()
 
+    LOGGER.setLevel(logging.INFO)
+    if not LOGGER.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        LOGGER.addHandler(handler)
+    LOGGER.propagate = False
+
     app = FastAPI(title="Lightning OWhisper MLX", version="0.1.0")
+
+    def _redact_headers(headers: Mapping[str, str]) -> Dict[str, str]:
+        redacted = {}
+        for key, value in headers.items():
+            if key.lower() == "authorization":
+                redacted[key] = "***REDACTED***"
+            else:
+                redacted[key] = value
+        return redacted
+
+    def _truncate(text: str, limit: int = 200) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "\u2026"
 
     async def _auth_dependency(request: Request) -> None:
         authenticator.verify_headers(request.headers)
 
-
     async def _optional_auth_dependency(request: Request) -> None:
         authenticator.verify_headers(request.headers, allow_missing=True)
+
+    @app.middleware("http")
+    async def _log_http_requests(request: Request, call_next):
+        LOGGER.info(
+            "HTTP request method=%s path=%s query=%s headers=%s",
+            request.method,
+            request.url.path,
+            request.url.query,
+            _redact_headers(dict(request.headers)),
+        )
+        response = await call_next(request)
+        LOGGER.info(
+            "HTTP response status=%s method=%s path=%s",
+            response.status_code,
+            request.method,
+            request.url.path,
+        )
+        return response
 
     @app.get("/health")
     async def health(_: None = Depends(_optional_auth_dependency)) -> PlainTextResponse:
@@ -108,9 +149,24 @@ def create_app(config: AppConfig) -> FastAPI:
         return JSONResponse(_serialize_models(config.models))
 
     async def handle_websocket(websocket: WebSocket) -> None:
+        LOGGER.info(
+            "WebSocket connection attempt path=%s client=%s query=%s headers=%s",
+            websocket.url.path,
+            websocket.client,
+            list(websocket.query_params.multi_items()),
+            _redact_headers(dict(websocket.headers)),
+        )
+
         try:
             authenticator.verify_websocket(websocket)
-        except HTTPException:
+        except HTTPException as exc:
+            LOGGER.warning(
+                "WebSocket authentication failed path=%s client=%s status=%s",
+                websocket.url.path,
+                websocket.client,
+                exc.status_code,
+            )
+
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -144,6 +200,16 @@ def create_app(config: AppConfig) -> FastAPI:
         request_id = uuid.uuid4().hex
         await websocket.accept(headers=[("dg-request-id", request_id)])
 
+        LOGGER.info(
+            "WebSocket accepted request_id=%s model=%s channels=%d language=%s redemption_time=%.3f",
+            request_id,
+            model_config.id,
+            channels,
+            language,
+            redemption_time,
+        )
+
+
         sample_rate = config.general.sample_rate
         segmenters = [
             Segmenter(
@@ -170,16 +236,45 @@ def create_app(config: AppConfig) -> FastAPI:
                 total_channels=channels,
                 request_id=request_id,
             )
+
+            alt = payload.get("channel", {}).get("alternatives", [{}])
+            transcript = alt[0].get("transcript", "") if alt else ""
+            LOGGER.info(
+                "Transcribed segment request_id=%s channel=%s start=%.3f duration=%.3f final=%s text=%r",
+                request_id,
+                payload.get("channel_index"),
+                segment.start_time,
+                max(segment.end_time - segment.start_time, 0.0),
+                payload.get("is_final"),
+                _truncate(transcript),
+            )
+
             await websocket.send_text(json.dumps(payload))
 
         try:
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
+
+                    LOGGER.info(
+                        "WebSocket disconnect received path=%s client=%s code=%s",
+                        websocket.url.path,
+                        websocket.client,
+                        message.get("code"),
+                    )
+
                     break
 
                 if message.get("bytes"):
                     chunk = np.frombuffer(message["bytes"], dtype=np.int16)
+
+                    LOGGER.info(
+                        "WebSocket audio chunk received request_id=%s bytes=%d channels=%d",
+                        request_id,
+                        len(message["bytes"]),
+                        channels,
+                    )
+
                     if channels == 1:
                         float_chunk = chunk.astype(np.float32) / 32768.0
                         for segment in segmenters[0].submit(float_chunk):
@@ -196,7 +291,19 @@ def create_app(config: AppConfig) -> FastAPI:
                     try:
                         control = json.loads(message["text"])
                     except json.JSONDecodeError:
+
+                        LOGGER.warning(
+                            "Failed to parse control message request_id=%s payload=%r",
+                            request_id,
+                            _truncate(message["text"]),
+                        )
                         continue
+                    LOGGER.info(
+                        "WebSocket control message request_id=%s payload=%s",
+                        request_id,
+                        control,
+                    )
+
                     control_type = control.get("type")
                     if control_type in {"Finalize", "CloseStream"}:
                         for idx, segmenter in enumerate(segmenters):
