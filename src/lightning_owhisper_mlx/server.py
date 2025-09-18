@@ -7,6 +7,7 @@ import logging
 import uuid
 from typing import Dict, Iterable, List, Mapping, Optional
 
+
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -122,6 +123,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.get("/v1/status")
     async def status_endpoint(_: None = Depends(_optional_auth_dependency)) -> PlainTextResponse:
+
         return PlainTextResponse("", status_code=status.HTTP_204_NO_CONTENT)
 
     def _serialize_models(models: Iterable[ModelConfig]) -> Dict[str, List[Dict[str, str]]]:
@@ -137,11 +139,13 @@ def create_app(config: AppConfig) -> FastAPI:
         }
 
     @app.get("/models")
+
     async def list_models(_: None = Depends(_optional_auth_dependency)) -> JSONResponse:
         return JSONResponse(_serialize_models(config.models))
 
     @app.get("/v1/models")
     async def list_models_v1(_: None = Depends(_optional_auth_dependency)) -> JSONResponse:
+
         return JSONResponse(_serialize_models(config.models))
 
     async def handle_websocket(websocket: WebSocket) -> None:
@@ -162,6 +166,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 websocket.client,
                 exc.status_code,
             )
+
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -194,6 +199,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
         request_id = uuid.uuid4().hex
         await websocket.accept(headers=[("dg-request-id", request_id)])
+
         LOGGER.info(
             "WebSocket accepted request_id=%s model=%s channels=%d language=%s redemption_time=%.3f",
             request_id,
@@ -202,6 +208,7 @@ def create_app(config: AppConfig) -> FastAPI:
             language,
             redemption_time,
         )
+
 
         sample_rate = config.general.sample_rate
         segmenters = [
@@ -229,6 +236,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 total_channels=channels,
                 request_id=request_id,
             )
+
             alt = payload.get("channel", {}).get("alternatives", [{}])
             transcript = alt[0].get("transcript", "") if alt else ""
             LOGGER.info(
@@ -240,28 +248,33 @@ def create_app(config: AppConfig) -> FastAPI:
                 payload.get("is_final"),
                 _truncate(transcript),
             )
+
             await websocket.send_text(json.dumps(payload))
 
         try:
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
+
                     LOGGER.info(
                         "WebSocket disconnect received path=%s client=%s code=%s",
                         websocket.url.path,
                         websocket.client,
                         message.get("code"),
                     )
+
                     break
 
                 if message.get("bytes"):
                     chunk = np.frombuffer(message["bytes"], dtype=np.int16)
+
                     LOGGER.info(
                         "WebSocket audio chunk received request_id=%s bytes=%d channels=%d",
                         request_id,
                         len(message["bytes"]),
                         channels,
                     )
+
                     if channels == 1:
                         float_chunk = chunk.astype(np.float32) / 32768.0
                         for segment in segmenters[0].submit(float_chunk):
@@ -278,6 +291,7 @@ def create_app(config: AppConfig) -> FastAPI:
                     try:
                         control = json.loads(message["text"])
                     except json.JSONDecodeError:
+
                         LOGGER.warning(
                             "Failed to parse control message request_id=%s payload=%r",
                             request_id,
@@ -289,6 +303,7 @@ def create_app(config: AppConfig) -> FastAPI:
                         request_id,
                         control,
                     )
+
                     control_type = control.get("type")
                     if control_type in {"Finalize", "CloseStream"}:
                         for idx, segmenter in enumerate(segmenters):
