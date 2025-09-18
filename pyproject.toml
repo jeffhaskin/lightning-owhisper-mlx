@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lightning-owhisper-mlx"
+version = "0.1.0"
+description = "Deepgram-compatible STT server using lightning-whisper-mlx"
+readme = "README.md"
+authors = [
+    {name = "Hyprnote"},
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "numpy",
+    "pydantic>=2.0",
+    "pydantic-settings",
+    "anyio",
+    "pyyaml",
+    "huggingface-hub",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+]
+mlx = [
+    "lightning-whisper-mlx",
+]
+
+[project.scripts]
+lightning-owhisper-mlx = "lightning_owhisper_mlx.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
