@@ -72,6 +72,7 @@ def create_app(config: AppConfig) -> FastAPI:
     async def _auth_dependency(request: Request) -> None:
         authenticator.verify_headers(request.headers)
 
+
     async def _optional_auth_dependency(request: Request) -> None:
         authenticator.verify_headers(request.headers, allow_missing=True)
 
@@ -81,6 +82,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.get("/v1/status")
     async def status_endpoint(_: None = Depends(_optional_auth_dependency)) -> PlainTextResponse:
+
         return PlainTextResponse("", status_code=status.HTTP_204_NO_CONTENT)
 
     def _serialize_models(models: Iterable[ModelConfig]) -> Dict[str, List[Dict[str, str]]]:
@@ -96,11 +98,13 @@ def create_app(config: AppConfig) -> FastAPI:
         }
 
     @app.get("/models")
+
     async def list_models(_: None = Depends(_optional_auth_dependency)) -> JSONResponse:
         return JSONResponse(_serialize_models(config.models))
 
     @app.get("/v1/models")
     async def list_models_v1(_: None = Depends(_optional_auth_dependency)) -> JSONResponse:
+
         return JSONResponse(_serialize_models(config.models))
 
     async def handle_websocket(websocket: WebSocket) -> None:
