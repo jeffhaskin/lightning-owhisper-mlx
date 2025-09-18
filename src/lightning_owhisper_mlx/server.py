@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import uuid
@@ -265,28 +266,11 @@ def create_app(config: AppConfig) -> FastAPI:
 
                     break
 
+                audio_payload: Optional[np.ndarray] = None
+                hyprnote_end = False
+
                 if message.get("bytes"):
-                    chunk = np.frombuffer(message["bytes"], dtype=np.int16)
-
-                    LOGGER.info(
-                        "WebSocket audio chunk received request_id=%s bytes=%d channels=%d",
-                        request_id,
-                        len(message["bytes"]),
-                        channels,
-                    )
-
-                    if channels == 1:
-                        float_chunk = chunk.astype(np.float32) / 32768.0
-                        for segment in segmenters[0].submit(float_chunk):
-                            await _transcribe_and_send(segment, 0)
-                    else:
-                        if chunk.size % 2 != 0:
-                            chunk = chunk[:-1]
-                        samples = chunk.reshape(-1, 2)
-                        for idx in range(2):
-                            float_chunk = samples[:, idx].astype(np.float32) / 32768.0
-                            for segment in segmenters[idx].submit(float_chunk):
-                                await _transcribe_and_send(segment, idx)
+                    audio_payload = np.frombuffer(message["bytes"], dtype=np.int16)
                 elif message.get("text"):
                     try:
                         control = json.loads(message["text"])
@@ -298,19 +282,110 @@ def create_app(config: AppConfig) -> FastAPI:
                             _truncate(message["text"]),
                         )
                         continue
+
+                    if isinstance(control, dict) and control.get("type") in {
+                        "audio",
+                        "dual_audio",
+                        "end",
+                    }:
+                        kind = control.get("type")
+                        value = control.get("value") or {}
+
+                        if kind == "audio":
+                            data = value.get("data")
+                            if isinstance(data, str) and data:
+                                try:
+                                    decoded = base64.b64decode(data)
+                                except (base64.binascii.Error, ValueError):
+                                    decoded = b""
+                                audio_payload = np.frombuffer(decoded, dtype=np.int16)
+                        elif kind == "dual_audio":
+                            mic = value.get("mic")
+                            speaker = value.get("speaker")
+                            mic_bytes = b""
+                            speaker_bytes = b""
+                            if isinstance(mic, str) and mic:
+                                try:
+                                    mic_bytes = base64.b64decode(mic)
+                                except (base64.binascii.Error, ValueError):
+                                    mic_bytes = b""
+                            if isinstance(speaker, str) and speaker:
+                                try:
+                                    speaker_bytes = base64.b64decode(speaker)
+                                except (base64.binascii.Error, ValueError):
+                                    speaker_bytes = b""
+
+                            if mic_bytes or speaker_bytes:
+                                mic_samples = np.frombuffer(mic_bytes, dtype=np.int16)
+                                speaker_samples = np.frombuffer(
+                                    speaker_bytes, dtype=np.int16
+                                )
+                                if mic_samples.size == 0:
+                                    audio_payload = speaker_samples
+                                elif speaker_samples.size == 0:
+                                    audio_payload = mic_samples
+                                else:
+                                    length = max(len(mic_samples), len(speaker_samples))
+                                    padded_mic = np.zeros(length, dtype=np.int16)
+                                    padded_speaker = np.zeros(length, dtype=np.int16)
+                                    padded_mic[: mic_samples.size] = mic_samples
+                                    padded_speaker[: speaker_samples.size] = speaker_samples
+                                    mixed = (
+                                        (padded_mic.astype(np.int32) + padded_speaker.astype(np.int32))
+                                        // 2
+                                    ).astype(np.int16)
+                                    audio_payload = mixed
+                        elif kind == "end":
+                            hyprnote_end = True
+                        else:
+                            audio_payload = None
+
+                        if audio_payload is None and not hyprnote_end:
+                            continue
+                    else:
+                        LOGGER.info(
+                            "WebSocket control message request_id=%s payload=%s",
+                            request_id,
+                            control,
+                        )
+
+                        control_type = control.get("type")
+                        if control_type in {"Finalize", "CloseStream"}:
+                            for idx, segmenter in enumerate(segmenters):
+                                for segment in segmenter.flush():
+                                    await _transcribe_and_send(segment, idx)
+                            if control_type == "CloseStream":
+                                break
+
+                if audio_payload is not None and audio_payload.size:
                     LOGGER.info(
-                        "WebSocket control message request_id=%s payload=%s",
+                        "WebSocket audio chunk received request_id=%s bytes=%d channels=%d",
                         request_id,
-                        control,
+                        int(audio_payload.size * audio_payload.itemsize),
+                        channels,
                     )
 
-                    control_type = control.get("type")
-                    if control_type in {"Finalize", "CloseStream"}:
-                        for idx, segmenter in enumerate(segmenters):
-                            for segment in segmenter.flush():
+                    if channels == 1:
+                        float_chunk = audio_payload.astype(np.float32) / 32768.0
+                        for segment in segmenters[0].submit(float_chunk):
+                            await _transcribe_and_send(segment, 0)
+                    else:
+                        channel_count = min(channels, 2)
+                        usable = audio_payload
+                        if usable.size % channel_count != 0:
+                            usable = usable[: usable.size - (usable.size % channel_count)]
+                        samples = usable.reshape(-1, channel_count)
+                        for idx in range(channel_count):
+                            float_chunk = samples[:, idx].astype(np.float32) / 32768.0
+                            for segment in segmenters[idx].submit(float_chunk):
                                 await _transcribe_and_send(segment, idx)
-                        if control_type == "CloseStream":
-                            break
+                    audio_payload = None
+
+                if hyprnote_end:
+                    for idx, segmenter in enumerate(segmenters):
+                        for segment in segmenter.flush():
+                            await _transcribe_and_send(segment, idx)
+                    break
                 if websocket.application_state == WebSocketState.DISCONNECTED:
                     break
         except WebSocketDisconnect:
