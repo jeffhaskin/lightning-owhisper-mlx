@@ -32,6 +32,16 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/v1/status")
+    async def status() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "model": cfg.model,
+            "quantization": cfg.quantization,
+            "sample_rate": cfg.sample_rate,
+            "version": app.version,
+        }
+
     @app.post("/v1/listen")
     async def listen(
         file: UploadFile = File(...),

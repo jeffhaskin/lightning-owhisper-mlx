@@ -13,6 +13,8 @@ and exposes both REST and WebSocket streaming endpoints.
 
 ## Features
 
+- `GET /v1/status`: Lightweight status and configuration check for health probes
+  or client readiness verification.
 - `POST /v1/listen`: Deepgram-style single-shot transcription of audio files.
 - `WS /v1/listen`: Real-time or near-real-time chunked streaming transcription with
   Deepgram-compatible control messages (`start`, `stop`, `ping`, etc.).
