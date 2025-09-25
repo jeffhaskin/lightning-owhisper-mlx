@@ -21,8 +21,6 @@ class ServerConfig:
     )
     max_workers: int = int(os.getenv("LWM_MAX_WORKERS", "1"))
     default_language: str | None = os.getenv("LWM_DEFAULT_LANGUAGE")
-    api_key: str | None = os.getenv("DEEPGRAM_API_KEY")
-
     def __post_init__(self) -> None:
         if self.quantization == "":
             self.quantization = None

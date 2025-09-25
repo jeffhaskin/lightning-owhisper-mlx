@@ -16,8 +16,6 @@ and exposes both REST and WebSocket streaming endpoints.
 - `POST /v1/listen`: Deepgram-style single-shot transcription of audio files.
 - `WS /v1/listen`: Real-time or near-real-time chunked streaming transcription with
   Deepgram-compatible control messages (`start`, `stop`, `ping`, etc.).
-- Optional API key enforcement matching Deepgram's `Authorization: Token …`
-  semantics (set `DEEPGRAM_API_KEY`).
 - Configurable model, quantization level, stream window size, and language
   defaults through environment variables.
 - Simple CLI entrypoint: `python -m server --host 0.0.0.0 --port 8080`.
@@ -44,7 +42,6 @@ and exposes both REST and WebSocket streaming endpoints.
    | `LWM_SAMPLE_RATE` | Target sample rate (Whisper expects 16000) | `16000` |
    | `LWM_STREAM_WINDOW_SECONDS` | Minimum buffered audio before sending interim transcripts | `2.5` |
    | `LWM_DEFAULT_LANGUAGE` | Force a specific language code | auto-detect |
-   | `DEEPGRAM_API_KEY` | Require clients to authenticate with this API key | _not required_ |
 
 3. **Run the service**
 
@@ -58,7 +55,8 @@ and exposes both REST and WebSocket streaming endpoints.
 ## REST usage example
 
 ```bash
-curl -X POST      -H "Authorization: Token $DEEPGRAM_API_KEY"      -H "Content-Type: audio/wav"      --data-binary @sample.wav      http://localhost:8080/v1/listen
+curl -X POST      -H "Content-Type: audio/wav"      --data-binary @sample.wav \
+    http://localhost:8080/v1/listen
 ```
 
 The response payload mirrors Deepgram's structure, including channel and
@@ -97,8 +95,9 @@ alternatives data:
 
 ## Streaming usage example
 
-1. **Open a WebSocket connection** to `ws://localhost:8080/v1/listen` with the
-   same API key header (if configured).
+1. **Open a WebSocket connection** to `ws://localhost:8080/v1/listen`. Clients
+   may include a Deepgram-style `Authorization` header for compatibility, but
+   the server accepts any value.
 2. **Send a JSON `start` control message**:
 
    ```json

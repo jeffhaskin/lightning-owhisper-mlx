@@ -6,27 +6,14 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .audio import decode_audio_bytes
-from .auth import extract_token, require_api_key
 from .config import DEFAULT_CONFIG, ServerConfig
 from .responses import build_listen_response
 from .streaming import StreamingSession
 from .transcriber import LightningMLXTranscriber
-
-
-class APIKeyDependency:
-    """Dependency helper to enforce API keys on HTTP routes."""
-
-    def __init__(self, config: ServerConfig) -> None:
-        self._config = config
-
-    async def __call__(self, request: Request) -> None:
-        require_api_key(request.headers.get("authorization"), self._config.api_key)
-
-
 def create_app(config: ServerConfig | None = None) -> FastAPI:
     cfg = config or DEFAULT_CONFIG
     app = FastAPI(
@@ -41,8 +28,6 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
     async def _shutdown() -> None:
         await transcriber.aclose()
 
-    api_key_dependency = APIKeyDependency(cfg)
-
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -51,7 +36,6 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
     async def listen(
         file: UploadFile = File(...),
         language: str | None = None,
-        _: None = Depends(api_key_dependency),
     ) -> JSONResponse:
         audio_bytes = await file.read()
         try:
@@ -64,10 +48,6 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
 
     @app.websocket("/v1/listen")
     async def websocket_listen(websocket: WebSocket) -> None:
-        token = extract_token(websocket.headers.get("authorization", ""))
-        if cfg.api_key and token != cfg.api_key:
-            await websocket.close(code=4401, reason="Unauthorized")
-            return
         await websocket.accept()
         send_lock = asyncio.Lock()
 
