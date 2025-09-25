@@ -36,7 +36,7 @@ and exposes both REST and WebSocket streaming endpoints.
 
    | Variable | Description | Default |
    | --- | --- | --- |
-  | `LWM_MODEL` | Whisper model alias (`tiny`, `small`, `distil-small.en`, `base`, `medium`, `distil-medium.en`, `large`, `large-v2`, `distil-large-v2`, `large-v3`, `distil-large-v3`) | `small` |
+   | `LWM_MODEL` | Whisper model alias (`tiny`, `small`, `distil-small.en`, `base`, `medium`, `distil-medium.en`, `large`, `large-v2`, `distil-large-v2`, `large-v3`, `distil-large-v3`) | `small` |
    | `LWM_QUANTIZATION` | Quantization level (`4bit` or `8bit`) | _none_ |
    | `LWM_BATCH_SIZE` | Batch size passed to lightning-whisper-mlx | `6` |
    | `LWM_SAMPLE_RATE` | Target sample rate (Whisper expects 16000) | `16000` |
