@@ -4,3 +4,5 @@ __pycache__/
 .env
 **/venv
 **/.DS_Store
+/mlx_models
+/sample-sound.mp3
