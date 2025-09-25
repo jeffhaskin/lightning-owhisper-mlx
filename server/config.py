@@ -4,11 +4,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from typing import ClassVar, Tuple
+
 
 
 @dataclass(slots=True)
 class ServerConfig:
     """Runtime configuration loaded from environment variables."""
+
+
+    SUPPORTED_MODELS: ClassVar[Tuple[str, ...]] = (
+        "tiny",
+        "small",
+        "distil-small.en",
+        "base",
+        "medium",
+        "distil-medium.en",
+        "large",
+        "large-v2",
+        "distil-large-v2",
+        "large-v3",
+        "distil-large-v3",
+    )
+
 
     model: str = os.getenv("LWM_MODEL", "small")
     quantization: str | None = (
@@ -28,6 +46,12 @@ class ServerConfig:
             raise ValueError(
                 "LWM_QUANTIZATION must be empty, '4bit', or '8bit' if provided."
             )
+
+        if self.model not in self.SUPPORTED_MODELS:
+            raise ValueError(
+                "LWM_MODEL must be one of: " + ", ".join(self.SUPPORTED_MODELS)
+            )
+
         if self.sample_rate <= 0:
             raise ValueError("Sample rate must be a positive integer")
         if self.stream_window_seconds <= 0:
