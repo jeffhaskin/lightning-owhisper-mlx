@@ -147,6 +147,13 @@ class StreamingSession:
         )
         segments = result.get("segments") or []
         new_segments = segments[state.segments_sent :]
+        if not new_segments and is_final and segments:
+            # Deepgram clients expect the final transcript to include the
+            # complete utterance. If we have already emitted all of the
+            # segments as interim results, resend the full list so the
+            # closing frame carries the transcript instead of an empty
+            # payload.
+            new_segments = segments
         state.segments_sent = len(segments)
         if not new_segments and not is_final:
             return
