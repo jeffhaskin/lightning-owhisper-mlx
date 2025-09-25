@@ -13,8 +13,9 @@ import numpy as np
 from .config import ServerConfig
 
 try:  # pragma: no cover - optional heavy dependency is imported lazily at runtime
-    from lightning_whisper_mlx import LightningWhisperMLX, transcribe_audio
-except ModuleNotFoundError as exc:  # pragma: no cover
+    from lightning_whisper_mlx import LightningWhisperMLX
+    from lightning_whisper_mlx.transcribe import transcribe_audio
+except (ModuleNotFoundError, ImportError) as exc:  # pragma: no cover
     raise RuntimeError(
         "lightning-whisper-mlx must be installed to run the transcription server"
     ) from exc
